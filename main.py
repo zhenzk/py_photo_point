@@ -20,8 +20,8 @@ TEXT_BG_COLOR = (0, 0, 0)  # 文本背景颜色 (黑色)
 TEXT_BG_ALPHA = 0.5  # 文本背景透明度
 
 
-# 带背景的文本绘制函数（添加边界检查）
-def draw_text_with_bg(img, text, position, font, font_scale, color, thickness):
+# 带背景的文本绘制函数（添加边界检查和重叠避免）
+def draw_text_with_bg(img, text, position, font, font_scale, color, thickness, existing_rects=None):
     # 获取文本大小
     text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
 
@@ -31,37 +31,78 @@ def draw_text_with_bg(img, text, position, font, font_scale, color, thickness):
     # 计算文本背景位置
     text_x, text_y = position
 
-    # 检查并调整位置，确保文本不超出图像边界
-    # 检查右边界
-    if text_x + text_size[0] + 5 > w:
-        text_x = w - text_size[0] - 5
-
-    # 检查左边界
-    if text_x < 5:
-        text_x = 5
-
-    # 检查下边界
-    if text_y + 5 > h:
-        text_y = h - 5
-
-    # 检查上边界
-    if text_y - text_size[1] - 5 < 0:
-        text_y = text_size[1] + 5
-
-    # 计算背景框位置
+    # 初始背景框位置
     bg_x1 = text_x - 2
     bg_y1 = text_y - text_size[1] - 2
     bg_x2 = text_x + text_size[0] + 2
     bg_y2 = text_y + 2
 
+    # 如果提供了现有矩形列表，检查重叠并调整位置
+    if existing_rects is not None:
+        max_attempts = 10
+        attempt = 0
+
+        # 检查是否与现有矩形重叠
+        def overlaps(rect1, rect2):
+            x1, y1, x2, y2 = rect1
+            a1, b1, a2, b2 = rect2
+            return not (x2 < a1 or a2 < x1 or y2 < b1 or b2 < y1)
+
+        # 尝试找到不重叠的位置
+        while attempt < max_attempts:
+            overlap_found = False
+            current_rect = (bg_x1, bg_y1, bg_x2, bg_y2)
+
+            for rect in existing_rects:
+                if overlaps(current_rect, rect):
+                    overlap_found = True
+                    break
+
+            if not overlap_found:
+                break
+
+            # 尝试向下移动
+            shift = 15
+            text_y += shift
+            bg_y1 += shift
+            bg_y2 += shift
+            attempt += 1
+
+    # 检查并调整位置，确保文本不超出图像边界
+    # 检查右边界
+    if bg_x2 > w - 5:
+        text_x = w - text_size[0] - 5
+        bg_x1 = text_x - 2
+        bg_x2 = text_x + text_size[0] + 2
+
+    # 检查左边界
+    if bg_x1 < 5:
+        text_x = 5
+        bg_x1 = text_x - 2
+        bg_x2 = text_x + text_size[0] + 2
+
+    # 检查下边界
+    if bg_y2 > h - 5:
+        text_y = h - 5
+        bg_y1 = text_y - text_size[1] - 2
+        bg_y2 = text_y + 2
+
+    # 检查上边界
+    if bg_y1 < 5:
+        text_y = text_size[1] + 5
+        bg_y1 = text_y - text_size[1] - 2
+        bg_y2 = text_y + 2
+
     # 创建半透明背景
     overlay = img.copy()
-    cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), TEXT_BG_COLOR, -1)
+    cv2.rectangle(overlay, (int(bg_x1), int(bg_y1)), (int(bg_x2), int(bg_y2)), TEXT_BG_COLOR, -1)
     img = cv2.addWeighted(overlay, TEXT_BG_ALPHA, img, 1 - TEXT_BG_ALPHA, 0)
 
     # 绘制文本
-    cv2.putText(img, text, (text_x, text_y), font, font_scale, color, thickness)
-    return img
+    cv2.putText(img, text, (int(text_x), int(text_y)), font, font_scale, color, thickness)
+
+    # 返回文本矩形区域和调整后的位置
+    return img, (bg_x1, bg_y1, bg_x2, bg_y2)
 
 
 # 重绘图像函数（包括坐标轴）
@@ -72,6 +113,8 @@ def redraw_image():
     img = base_img.copy()
 
 
+    # 存储所有文本矩形区域以避免重叠
+    text_rects = []
 
     # 如果已设置原点，绘制坐标轴
     if origin is not None:
@@ -87,23 +130,26 @@ def redraw_image():
         x_label_pos = (w - 25, origin[1] - 8)
         if origin[1] - 8 < 0:  # 检查上边界
             x_label_pos = (w - 25, origin[1] + 15)
-        img = draw_text_with_bg(img, "X", x_label_pos,
-                                FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS)
+        img, x_rect = draw_text_with_bg(img, "X", x_label_pos,
+                                        FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS)
+        text_rects.append(x_rect)
 
         # Y轴标签
         y_label_pos = (origin[0] + 8, 25)
         if origin[0] + 8 > w - 30:  # 检查右边界
             y_label_pos = (origin[0] - 30, 25)
-        img = draw_text_with_bg(img, "Y", y_label_pos,
-                                FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS)
+        img, y_rect = draw_text_with_bg(img, "Y", y_label_pos,
+                                        FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS)
+        text_rects.append(y_rect)
 
         # 绘制原点处显示(0,0) - 保留3位小数
         origin_text = f"(0.000, 0.000)"
         origin_pos = (origin[0] + 12, origin[1] - 8)
         if origin[1] - 8 < 0:  # 检查上边界
             origin_pos = (origin[0] + 12, origin[1] + 15)
-        img = draw_text_with_bg(img, origin_text, origin_pos,
-                                FONT, FONT_SCALE, ORIGIN_COLOR, FONT_THICKNESS)
+        img, origin_rect = draw_text_with_bg(img, origin_text, origin_pos,
+                                             FONT, FONT_SCALE, ORIGIN_COLOR, FONT_THICKNESS)
+        text_rects.append(origin_rect)
 
         # 绘制所有已记录的点 - 保留3位小数
         for i, point in enumerate(points):
@@ -115,18 +161,20 @@ def redraw_image():
             coord_text = f"({dx:.3f}, {dy:.3f})"
 
             # 计算文本位置（默认在点右侧）
-            text_pos = (point[0] + 15, point[1])  # 增加偏移量以适应更长的文本
+            text_pos = (point[0] + 15, point[1])
 
             # 如果点在图像右侧，将文本显示在左侧
-            if point[0] > w - 120:  # 如果点在右侧120像素内
-                text_pos = (point[0] - 150, point[1])  # 显示在左侧，增加偏移量
+            if point[0] > w - 150:  # 如果点在右侧150像素内
+                text_pos = (point[0] - 150, point[1])
 
             # 如果点在图像底部，将文本显示在上方
-            if point[1] > h - 20:
+            if point[1] > h - 30:
                 text_pos = (text_pos[0], point[1] - 20)
 
-            img = draw_text_with_bg(img, coord_text, text_pos,
-                                    FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS)
+            # 绘制带背景的文本，避免重叠
+            img, text_rect = draw_text_with_bg(img, coord_text, text_pos,
+                                               FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS, text_rects)
+            text_rects.append(text_rect)
 
     # 显示更新后的图像
     cv2.imshow("Coordinate System", img)
@@ -140,13 +188,13 @@ def mouse_event(event, x, y, flags, param):
         if origin is None:
             # 第一次点击设为原点
             origin = (x, y)
-            print(f"原点设置于: ({x:.3f}, {y:.3f})")  # 保留3位小数
+            print(f"原点设置于: ({x:.3f}, {y:.3f})")
         else:
             # 记录其他点
             points.append((x, y))
             dx = (x - origin[0]) * pixel_size * scale_factor
             dy = (y - origin[1]) * pixel_size * scale_factor
-            print(f"添加点: 绝对坐标 ({x:.3f}, {y:.3f}), 相对坐标 ({dx:.3f}, {dy:.3f})")  # 保留3位小数
+            print(f"添加点: 绝对坐标 ({x:.3f}, {y:.3f}), 相对坐标 ({dx:.3f}, {dy:.3f})")
 
         # 重绘图像（包括坐标轴）
         redraw_image()
@@ -159,7 +207,7 @@ def set_pixel_size():
         value = float(input("请输入像素大小（单位长度/像素，例如0.1）: "))
         if value > 0:
             pixel_size = value
-            print(f"像素大小已设置为: {pixel_size:.3f}")  # 保留3位小数
+            print(f"像素大小已设置为: {pixel_size:.3f}")
             redraw_image()
         else:
             print("错误: 像素大小必须大于0")
@@ -174,7 +222,7 @@ def set_scale_factor():
         value = float(input("请输入步长（缩放因子，例如1.0）: "))
         if value > 0:
             scale_factor = value
-            print(f"步长已设置为: {scale_factor:.3f}")  # 保留3位小数
+            print(f"步长已设置为: {scale_factor:.3f}")
             redraw_image()
         else:
             print("错误: 步长必须大于0")
