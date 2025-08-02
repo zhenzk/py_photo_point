@@ -7,7 +7,8 @@ origin = None  # 原点
 img = None  # 图像变量
 base_img = None  # 原始图像副本
 scale_factor = 1.0  # 坐标缩放因子（步长）
-pixel_size = 0.001  # 像素大小（单位长度/像素）
+pixel_size = 0.1  # 像素大小（单位长度/像素）
+show_labels = False  # 是否显示坐标标签
 
 # 优化后的字体设置
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -18,6 +19,7 @@ ORIGIN_COLOR = (255, 255, 255)  # 原点文字颜色 (白色)
 POINT_COLOR = (255, 255, 255)  # 点坐标颜色 (白色)
 TEXT_BG_COLOR = (0, 0, 0)  # 文本背景颜色 (黑色)
 TEXT_BG_ALPHA = 0.5  # 文本背景透明度
+POINT_NUMBER_COLOR = (0, 255, 255)  # 点序号颜色 (黄色)
 
 
 # 带背景的文本绘制函数（添加边界检查和重叠避免）
@@ -107,11 +109,10 @@ def draw_text_with_bg(img, text, position, font, font_scale, color, thickness, e
 
 # 重绘图像函数（包括坐标轴）
 def redraw_image():
-    global img, base_img, origin, points, scale_factor, pixel_size
+    global img, base_img, origin, points, scale_factor, pixel_size, show_labels
 
     # 重置为原始图像
     img = base_img.copy()
-
 
     # 存储所有文本矩形区域以避免重叠
     text_rects = []
@@ -157,24 +158,30 @@ def redraw_image():
             dx = (point[0] - origin[0]) * pixel_size * scale_factor
             dy = (point[1] - origin[1]) * pixel_size * scale_factor
 
-            # 显示相对坐标（保留3位小数）
-            coord_text = f"({dx:.3f}, {dy:.3f})"
+            # 在点上绘制序号（黄色小数字）
+            cv2.putText(img, str(i + 1), (point[0] + 5, point[1] - 5),
+                        FONT, 0.5, POINT_NUMBER_COLOR, 1)
 
-            # 计算文本位置（默认在点右侧）
-            text_pos = (point[0] + 15, point[1])
+            # 如果标签显示开启
+            if show_labels:
+                # 显示相对坐标（保留3位小数）
+                coord_text = f"({dx:.3f}, {dy:.3f})"
 
-            # 如果点在图像右侧，将文本显示在左侧
-            if point[0] > w - 150:  # 如果点在右侧150像素内
-                text_pos = (point[0] - 150, point[1])
+                # 计算文本位置（默认在点右侧）
+                text_pos = (point[0] + 15, point[1])
 
-            # 如果点在图像底部，将文本显示在上方
-            if point[1] > h - 30:
-                text_pos = (text_pos[0], point[1] - 20)
+                # 如果点在图像右侧，将文本显示在左侧
+                if point[0] > w - 150:  # 如果点在右侧150像素内
+                    text_pos = (point[0] - 150, point[1])
 
-            # 绘制带背景的文本，避免重叠
-            img, text_rect = draw_text_with_bg(img, coord_text, text_pos,
-                                               FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS, text_rects)
-            text_rects.append(text_rect)
+                # 如果点在图像底部，将文本显示在上方
+                if point[1] > h - 30:
+                    text_pos = (text_pos[0], point[1] - 20)
+
+                # 绘制带背景的文本，避免重叠
+                img, text_rect = draw_text_with_bg(img, coord_text, text_pos,
+                                                   FONT, FONT_SCALE, POINT_COLOR, FONT_THICKNESS, text_rects)
+                text_rects.append(text_rect)
 
     # 显示更新后的图像
     cv2.imshow("Coordinate System", img)
@@ -194,7 +201,7 @@ def mouse_event(event, x, y, flags, param):
             points.append((x, y))
             dx = (x - origin[0]) * pixel_size * scale_factor
             dy = (y - origin[1]) * pixel_size * scale_factor
-            print(f"添加点: 绝对坐标 ({x:.3f}, {y:.3f}), 相对坐标 ({dx:.3f}, {dy:.3f})")
+            print(f"添加点 {len(points)}: 绝对坐标 ({x:.3f}, {y:.3f}), 相对坐标 ({dx:.3f}, {dy:.3f})")
 
         # 重绘图像（包括坐标轴）
         redraw_image()
@@ -230,6 +237,15 @@ def set_scale_factor():
         print("错误: 请输入有效的数字")
 
 
+# 切换标签显示状态
+def toggle_labels():
+    global show_labels
+    show_labels = not show_labels
+    status = "开" if show_labels else "关"
+    print(f"坐标标签显示已{status}")
+    redraw_image()
+
+
 # 主程序
 if __name__ == "__main__":
     # 替换为你的图片路径
@@ -257,6 +273,7 @@ if __name__ == "__main__":
     print("   - ESC: 退出程序")
     print("   - S: 设置步长（缩放因子）")
     print("   - P: 设置像素大小（单位长度/像素）")
+    print("   - H: 显示/隐藏坐标标签")
     print("   - C: 清除所有点（保留原点）")
     print("   - R: 重置整个系统（包括原点）")
 
@@ -269,6 +286,8 @@ if __name__ == "__main__":
             set_scale_factor()
         elif key == ord('p') or key == ord('P'):  # 设置像素大小
             set_pixel_size()
+        elif key == ord('h') or key == ord('H'):  # 切换标签显示
+            toggle_labels()
         elif key == ord('c') or key == ord('C'):  # 清除所有点
             points = []
             print("已清除所有点")
